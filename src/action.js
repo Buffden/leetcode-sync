@@ -2,7 +2,9 @@ const axios = require("axios");
 const { Octokit } = require("@octokit/rest");
 const path = require("path");
 
-const COMMIT_MESSAGE = "Sync LeetCode submission";
+const COMMIT_MESSAGE = "[LeetCode]";
+const BASE_URL = "https://leetcode.com";
+
 const LANG_TO_EXTENSION = {
   bash: "sh",
   c: "c",
@@ -30,7 +32,60 @@ const LANG_TO_EXTENSION = {
   swift: "swift",
   typescript: "ts",
 };
-const BASE_URL = "https://leetcode.com";
+
+// Ordered highest-priority first. When a problem has multiple tags, the first
+// match in this list determines the destination folder.
+const TAG_PRIORITY = [
+  // Tier 1 — specific algorithm patterns
+  "sliding-window",
+  "two-pointers",
+  "divide-and-conquer",
+  "topological-sort",
+  "union-find",
+  "monotonic-stack",
+  "monotonic-queue",
+  "prefix-sum",
+  "backtracking",
+  "shortest-path",
+  "minimum-spanning-tree",
+  // Tier 2 — core algorithms
+  "dynamic-programming",
+  "greedy",
+  "binary-search",
+  "breadth-first-search",
+  "depth-first-search",
+  "bit-manipulation",
+  "recursion",
+  "memoization",
+  // Tier 3 — specific data structures
+  "heap-priority-queue",
+  "trie",
+  "stack",
+  "queue",
+  "linked-list",
+  "binary-search-tree",
+  "segment-tree",
+  "binary-indexed-tree",
+  // Tier 4 — general (fallback)
+  "hash-table",
+  "string",
+  "matrix",
+  "tree",
+  "graph",
+  "math",
+  "sorting",
+  "array",
+];
+
+function getPrimaryTag(topicTags) {
+  if (!topicTags || topicTags.length === 0) return "uncategorized";
+  const slugs = topicTags.map((t) => t.slug);
+  for (const tag of TAG_PRIORITY) {
+    if (slugs.includes(tag)) return tag;
+  }
+  // No match in priority list — fall back to the first tag the API returned
+  return slugs[0];
+}
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
@@ -100,15 +155,15 @@ async function getInfo(submission, session, csrfToken) {
           ? `${submissionDetails.memoryPercentile.toFixed(2)}%`
           : "N/A";
 
-      const questionId = submissionDetails?.question?.questionId
-        ? pad(submissionDetails.question.questionId.toString())
-        : "N/A";
+      const rawQid = submissionDetails?.question?.questionId?.toString() ?? "0";
+      const questionId = pad(rawQid);
 
       log(`Got info for submission #${submission.id}`);
       return {
         runtimePerc: runtimePercentile,
         memoryPerc: memoryPercentile,
         qid: questionId,
+        questionNum: rawQid,
         code: response.data.data.submissionDetails.code,
       };
     } catch (exception) {
@@ -134,6 +189,41 @@ async function getInfo(submission, session, csrfToken) {
   return { ...submission, ...info };
 }
 
+function generateReadme(submission, questionData) {
+  const { title, titleSlug, runtime, memory, runtimePerc, memoryPerc, questionNum } =
+    submission;
+  const difficulty = questionData?.difficulty ?? "N/A";
+  const topicTags = questionData?.topicTags ?? [];
+
+  const topicsStr =
+    topicTags.length > 0 ? topicTags.map((t) => t.name).join(", ") : "N/A";
+  const link = `${BASE_URL}/problems/${titleSlug}/`;
+
+  const runtimeStr =
+    runtimePerc && runtimePerc !== "N/A"
+      ? `${runtime} (beats ${runtimePerc})`
+      : runtime;
+  const memoryStr =
+    memoryPerc && memoryPerc !== "N/A"
+      ? `${memory} (beats ${memoryPerc})`
+      : memory;
+
+  return `# ${questionNum}. ${title}
+
+**Difficulty:** ${difficulty}
+**Link:** ${link}
+**Topics:** ${topicsStr}
+
+## Stats
+- Runtime: ${runtimeStr}
+- Memory: ${memoryStr}
+
+## Approach
+
+## Complexity
+`;
+}
+
 async function commit(params) {
   const {
     octokit,
@@ -149,39 +239,29 @@ async function commit(params) {
     questionData,
   } = params;
 
-  const name = normalizeName(submission.title);
-  log(`Committing solution for ${name}...`);
-
-  if (!LANG_TO_EXTENSION[submission.lang]) {
-    throw `Language ${submission.lang} does not have a registered extension.`;
-  }
+  log(`Committing solution for ${submission.titleSlug}...`);
 
   const prefix = !!destinationFolder ? destinationFolder : "";
-  const commitName = !!commitHeader ? commitHeader : COMMIT_MESSAGE;
+  const commitPrefix = !!commitHeader ? commitHeader : COMMIT_MESSAGE;
+  const message = `${commitPrefix} ${submission.questionNum}. ${submission.title}`;
 
-  if ("runtimePerc" in submission) {
-    message = `${commitName} - ${submission.title} - Runtime - ${submission.runtime} (${submission.runtimePerc}), Memory - ${submission.memory} (${submission.memoryPerc})`;
-    qid = `${submission.qid}-`;
-  } else {
-    message = `${commitName} - ${submission.title} - Runtime - ${submission.runtime}, Memory - ${submission.memory}`;
-    qid = "";
-  }
-  const folderName = `${qid}${name}`;
-  // Markdown file for the problem with question data
-  const questionPath = path.join(prefix, folderName, "README.md");
+  const topicTags = questionData?.topicTags ?? [];
+  const primaryTag = getPrimaryTag(topicTags);
 
-  // Separate file for the solution
-  const solutionFileName = `solution.${LANG_TO_EXTENSION[submission.lang]}`;
-  const solutionPath = path.join(prefix, folderName, solutionFileName);
+  const ext = LANG_TO_EXTENSION[submission.lang] ?? submission.lang;
+  const questionFolder = `${submission.qid}-${submission.titleSlug}`;
+  const solutionFileName = `${submission.titleSlug}-solution.${ext}`;
+  const readmeContent = generateReadme(submission, questionData);
 
+  const dir = path.join(prefix, primaryTag, questionFolder);
   const treeData = [
     {
-      path: path.normalize(questionPath),
+      path: path.normalize(path.join(dir, "README.md")),
       mode: "100644",
-      content: questionData ?? "Unable to fetch the Problem statement.",
+      content: readmeContent,
     },
     {
-      path: path.normalize(solutionPath),
+      path: path.normalize(path.join(dir, solutionFileName)),
       mode: "100644",
       content: `${submission.code}\n`, // Adds newline at EOF to conform to git recommendations
     },
@@ -221,7 +301,7 @@ async function commit(params) {
     force: true,
   });
 
-  log(`Committed solution for ${name}`);
+  log(`Committed solution for ${submission.titleSlug}`);
 
   return [treeResponse.data.sha, commitResponse.data.sha];
 }
@@ -233,7 +313,11 @@ async function getQuestionData(titleSlug, leetcodeSession, csrfToken) {
   const graphql = JSON.stringify({
     query: `query getQuestionDetail($titleSlug: String!) {
       question(titleSlug: $titleSlug) {
-        content
+        difficulty
+        topicTags {
+          name
+          slug
+        }
       }
     }`,
     variables: { titleSlug: titleSlug },
@@ -246,7 +330,7 @@ async function getQuestionData(titleSlug, leetcodeSession, csrfToken) {
       { headers }
     );
     const result = await response.data;
-    return result.data.question.content;
+    return result.data.question;
   } catch (error) {
     // If problem is locked due to user not having LeetCode Premium
     if (error.response && error.response.status === 403) {
@@ -322,12 +406,9 @@ async function sync(inputs) {
   // Since we need to modify the commit time, we can't use the default settings for the
   // authenticated user.
   let commitInfo = commits.data[commits.data.length - 1].commit.author;
+  const expectedPrefix = !!commitHeader ? commitHeader : COMMIT_MESSAGE;
   for (const commit of commits.data) {
-    if (
-      !commit.commit.message.startsWith(
-        !!commitHeader ? commitHeader : COMMIT_MESSAGE
-      )
-    ) {
+    if (!commit.commit.message.startsWith(expectedPrefix)) {
       continue;
     }
     commitInfo = commit.commit.author;
