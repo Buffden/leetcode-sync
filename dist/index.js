@@ -14678,11 +14678,39 @@ async function getInfo(submission, session, csrfToken) {
   return { ...submission, ...info };
 }
 
+function htmlToMarkdown(html) {
+  if (!html) return "";
+  return html
+    .replace(/<pre>\s*<code[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/gi, (_, c) => `\`\`\`\n${c}\n\`\`\``)
+    .replace(/<code>([\s\S]*?)<\/code>/gi, "`$1`")
+    .replace(/<strong>([\s\S]*?)<\/strong>/gi, "**$1**")
+    .replace(/<b>([\s\S]*?)<\/b>/gi, "**$1**")
+    .replace(/<em>([\s\S]*?)<\/em>/gi, "*$1*")
+    .replace(/<i>([\s\S]*?)<\/i>/gi, "*$1*")
+    .replace(/<li>([\s\S]*?)<\/li>/gi, "- $1")
+    .replace(/<\/?(ul|ol)>/gi, "")
+    .replace(/<p>([\s\S]*?)<\/p>/gi, "$1\n\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<sup>([\s\S]*?)<\/sup>/gi, "^$1^")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function generateReadme(submission, questionData) {
   const { title, titleSlug, runtime, memory, runtimePerc, memoryPerc, questionNum } =
     submission;
   const difficulty = questionData?.difficulty ?? "N/A";
   const topicTags = questionData?.topicTags ?? [];
+  const content = questionData?.content ?? "";
+  const hints = questionData?.hints ?? [];
+  const similarQuestionsRaw = questionData?.similarQuestions ?? "[]";
 
   const topicsStr =
     topicTags.length > 0 ? topicTags.map((t) => t.name).join(", ") : "N/A";
@@ -14697,12 +14725,37 @@ function generateReadme(submission, questionData) {
       ? `${memory} (beats ${memoryPerc})`
       : memory;
 
+  const descriptionMd = htmlToMarkdown(content);
+
+  let hintsSection = "";
+  if (hints.length > 0) {
+    const hintItems = hints
+      .map((h, i) => `<details>\n<summary>Hint ${i + 1}</summary>\n\n${htmlToMarkdown(h)}\n\n</details>`)
+      .join("\n\n");
+    hintsSection = `\n## Hints\n\n${hintItems}\n`;
+  }
+
+  let similarSection = "";
+  try {
+    const similar = JSON.parse(similarQuestionsRaw);
+    if (similar.length > 0) {
+      const items = similar
+        .map((q) => `- [${q.title}](${BASE_URL}/problems/${q.titleSlug}/) (${q.difficulty})`)
+        .join("\n");
+      similarSection = `\n## Similar Questions\n\n${items}\n`;
+    }
+  } catch (_) {}
+
   return `# ${questionNum}. ${title}
 
 **Difficulty:** ${difficulty}
 **Link:** ${link}
 **Topics:** ${topicsStr}
 
+## Problem
+
+${descriptionMd}
+${hintsSection}${similarSection}
 ## Stats
 - Runtime: ${runtimeStr}
 - Memory: ${memoryStr}
@@ -14803,6 +14856,9 @@ async function getQuestionData(titleSlug, leetcodeSession, csrfToken) {
     query: `query getQuestionDetail($titleSlug: String!) {
       question(titleSlug: $titleSlug) {
         difficulty
+        content
+        hints
+        similarQuestions
         topicTags {
           name
           slug
