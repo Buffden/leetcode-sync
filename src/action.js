@@ -1,6 +1,7 @@
 const axios = require("axios");
 const { Octokit } = require("@octokit/rest");
 const path = require("path");
+const companyTags = require("../data/company-tags.json");
 
 const COMMIT_MESSAGE = "[LeetCode]";
 const BASE_URL = "https://leetcode.com";
@@ -225,6 +226,8 @@ function generateReadme(submission, questionData) {
 
   const topicsStr =
     topicTags.length > 0 ? topicTags.map((t) => t.name).join(", ") : "N/A";
+  const companies = companyTags[titleSlug] ?? [];
+  const companiesStr = companies.length > 0 ? companies.join(", ") : "N/A";
   const link = `${BASE_URL}/problems/${titleSlug}/`;
 
   const runtimeStr =
@@ -262,6 +265,7 @@ function generateReadme(submission, questionData) {
 **Difficulty:** ${difficulty}
 **Link:** ${link}
 **Topics:** ${topicsStr}
+**Companies:** ${companiesStr}
 
 ## Problem
 

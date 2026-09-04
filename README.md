@@ -9,7 +9,7 @@ GitHub Action for automatically syncing LeetCode submissions to a GitHub reposit
 ## Features
 
 - **DSA pattern folders**: solutions are organized by algorithmic pattern (e.g. `sliding-window/`, `dynamic-programming/`) using a priority-ordered tag map
-- **Per-problem README**: each problem gets its own `README.md` with title, difficulty, link, topics, runtime/memory stats, and placeholder `## Approach` / `## Complexity` sections
+- **Per-problem README**: each problem gets its own `README.md` with title, difficulty, link, topics, companies known to have asked it, runtime/memory stats, and placeholder `## Approach` / `## Complexity` sections
 - **Multi-language support**: solution files use the correct extension per language (e.g. `two-sum-solution.java`, `two-sum-solution.cpp`)
 - **Commit message format**: `[LeetCode] <number>. <title>` (e.g. `[LeetCode] 1. Two Sum`)
 - **Fallback folder**: problems with no matching pattern tag go into `uncategorized/`
@@ -87,6 +87,21 @@ dynamic-programming/
 - `destination-folder` _(optional)_: Root folder in your repo to save submissions under, default: _none_
 - `verbose` _(optional)_: Fetches submission percentiles and question numbers (requires an extra API call), default: `true`
 - `commit-header` _(optional)_: Prefix for automated commit messages, default: `[LeetCode]`
+
+## Company tags
+
+Each README's `**Companies:**` line is looked up from `data/company-tags.json`, a slug → company-list
+map built offline from [Buffden/leetcode-companywise-interview-questions](https://github.com/Buffden/leetcode-companywise-interview-questions)
+(LeetCode's own company-tag data is premium-only, so this action can't fetch it live).
+
+That source repo is a dated snapshot, not a live feed, so the map only needs occasional refreshing:
+
+```bash
+npm run build:company-map
+```
+
+This re-fetches every company's `all.csv` from that repo and rewrites `data/company-tags.json`.
+Commit the updated file when you run it.
 
 ## Testing locally
 
