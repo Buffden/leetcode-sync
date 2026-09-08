@@ -230,8 +230,8 @@ function extractUserNotes(existingReadme) {
     if (userEnd !== -1) {
       return existingReadme
         .slice(contentStart, userEnd)
-        .replace(/^\r?\n/, "")
-        .replace(/\r?\n$/, "");
+        .replace(/^\r?\n+/, "")
+        .replace(/\r?\n+$/, "");
     }
   }
 

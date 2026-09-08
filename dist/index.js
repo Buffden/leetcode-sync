@@ -14494,6 +14494,11 @@ const companyTags = __nccwpck_require__(7332);
 
 const COMMIT_MESSAGE = "[LeetCode]";
 const BASE_URL = "https://leetcode.com";
+const LEETCODE_SYNC_START = "<!-- LEETCODE_SYNC:START -->";
+const LEETCODE_SYNC_END = "<!-- LEETCODE_SYNC:END -->";
+const USER_NOTES_START = "<!-- USER_NOTES:START -->";
+const USER_NOTES_END = "<!-- USER_NOTES:END -->";
+const DEFAULT_USER_NOTES = "## Approach\n\n## Complexity\n";
 
 const LANG_TO_EXTENSION = {
   bash: "sh",
@@ -14704,7 +14709,58 @@ function htmlToMarkdown(html) {
     .trim();
 }
 
-function generateReadme(submission, questionData) {
+function extractUserNotes(existingReadme) {
+  if (!existingReadme) return DEFAULT_USER_NOTES;
+
+  const userStart = existingReadme.indexOf(USER_NOTES_START);
+  if (userStart !== -1) {
+    const contentStart = userStart + USER_NOTES_START.length;
+    const userEnd = existingReadme.indexOf(USER_NOTES_END, contentStart);
+    if (userEnd !== -1) {
+      return existingReadme
+        .slice(contentStart, userEnd)
+        .replace(/^\r?\n+/, "")
+        .replace(/\r?\n+$/, "");
+    }
+  }
+
+  // Backward compatibility for READMEs created before ownership markers existed.
+  // Everything from "## Approach" onward is considered user-owned content.
+  const legacyApproach = existingReadme.search(/^## Approach\s*$/m);
+  if (legacyApproach !== -1) {
+    return existingReadme.slice(legacyApproach).trimEnd();
+  }
+
+  return DEFAULT_USER_NOTES.trimEnd();
+}
+
+async function getExistingReadme(octokit, owner, repo, readmePath, ref) {
+  try {
+    const response = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: readmePath,
+      ref,
+    });
+
+    if (Array.isArray(response.data) || !response.data.content) {
+      return null;
+    }
+
+    return Buffer.from(
+      response.data.content,
+      response.data.encoding || "base64",
+    ).toString("utf8");
+  } catch (error) {
+    const status = error.status ?? error.response?.status;
+    if (status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function generateReadme(submission, questionData, userNotes = DEFAULT_USER_NOTES) {
   const { title, titleSlug, runtime, memory, runtimePerc, memoryPerc, questionNum } =
     submission;
   const difficulty = questionData?.difficulty ?? "N/A";
@@ -14749,7 +14805,10 @@ function generateReadme(submission, questionData) {
     }
   } catch (_) {}
 
-  return `# ${questionNum}. ${title}
+  const notes = (userNotes || DEFAULT_USER_NOTES).trimEnd();
+
+  return `${LEETCODE_SYNC_START}
+# ${questionNum}. ${title}
 
 **Difficulty:** ${difficulty}
 **Link:** ${link}
@@ -14764,9 +14823,13 @@ ${hintsSection}${similarSection}
 - Runtime: ${runtimeStr}
 - Memory: ${memoryStr}
 
-## Approach
+${LEETCODE_SYNC_END}
 
-## Complexity
+${USER_NOTES_START}
+
+${notes}
+
+${USER_NOTES_END}
 `;
 }
 
@@ -14797,12 +14860,22 @@ async function commit(params) {
   const ext = LANG_TO_EXTENSION[submission.lang] ?? submission.lang;
   const questionFolder = `${submission.qid}-${submission.titleSlug}`;
   const solutionFileName = `${submission.titleSlug}-solution.${ext}`;
-  const readmeContent = generateReadme(submission, questionData);
 
   const dir = path.join(prefix, primaryTag, questionFolder);
+  const readmePath = path.normalize(path.join(dir, "README.md")).replace(/\\/g, "/");
+  const existingReadme = await getExistingReadme(
+    octokit,
+    owner,
+    repo,
+    readmePath,
+    latestCommitSHA,
+  );
+  const userNotes = extractUserNotes(existingReadme);
+  const readmeContent = generateReadme(submission, questionData, userNotes);
+
   const treeData = [
     {
-      path: path.normalize(path.join(dir, "README.md")),
+      path: readmePath,
       mode: "100644",
       content: readmeContent,
     },
@@ -15096,7 +15169,14 @@ async function sync(inputs) {
   log("Done syncing all submissions.");
 }
 
-module.exports = { log, sync };
+module.exports = {
+  log,
+  sync,
+  _test: {
+    extractUserNotes,
+    generateReadme,
+  },
+};
 
 
 /***/ }),
