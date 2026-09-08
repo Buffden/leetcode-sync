@@ -7,7 +7,8 @@
     "test": "node index.js test",
     "package": "ncc build index.js",
     "build:company-map": "node scripts/build-company-map.js",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:readme-retention": "node --test test/readme-retention.test.js"
   },
   "repository": {
     "type": "git",
